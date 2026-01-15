@@ -1,0 +1,37 @@
+# 가상환경
+venv/
+env/
+.venv/
+
+# 환경변수
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# 로그
+*.log
+
+# 테스트
+.pytest_cache/
+.coverage
+htmlcov/

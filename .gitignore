@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Backend (Python)
+backend/venv/
+backend/.env
+backend/.env.local
+backend/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Frontend (Flutter)
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/build/
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+frontend/*.iml
+
+# 로그
+*.log
