@@ -751,11 +751,15 @@ class ResultPage extends StatelessWidget {
                           height: 180,
                           width: double.infinity,
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
+                            color: const Color(0xFFEEF2FF),
                             borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: AppColors.primary.withOpacity(0.1),
+                              width: 1,
+                            ),
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.primary.withOpacity(0.2),
+                                color: AppColors.primary.withOpacity(0.1),
                                 blurRadius: 20,
                                 offset: const Offset(0, 10),
                               ),
