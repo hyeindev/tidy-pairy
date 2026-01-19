@@ -674,7 +674,7 @@ class _LoadingPageState extends State<LoadingPage>
     3) 분석 결과 화면
 ----------------------------------------------------- */
 
-class ResultPage extends StatelessWidget {
+class ResultPage extends StatefulWidget {
   final String imagePath;
   final Uint8List imageBytes;
   final List<Map<String, dynamic>> detectedItems;
@@ -685,6 +685,29 @@ class ResultPage extends StatelessWidget {
     required this.imageBytes,
     required this.detectedItems,
   });
+
+  @override
+  State<ResultPage> createState() => _ResultPageState();
+}
+
+class _ResultPageState extends State<ResultPage>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _gradientController;
+
+  @override
+  void initState() {
+    super.initState();
+    _gradientController = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _gradientController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -747,57 +770,87 @@ class ResultPage extends StatelessWidget {
                       // 이미지 프리뷰 (클릭하면 전체 화면으로 보기)
                       GestureDetector(
                         onTap: () => _showFullImage(context),
-                        child: Container(
-                          height: 180,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.primary.withOpacity(0.2),
-                                blurRadius: 20,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: Stack(
-                            children: [
-                              ClipRRect(
+                        child: AnimatedBuilder(
+                          animation: _gradientController,
+                          builder: (context, child) {
+                            return Container(
+                              height: 200,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(20),
-                                child: Center(
-                                  child: kIsWeb
-                                      ? Image.memory(
-                                          imageBytes,
-                                          fit: BoxFit.contain,
-                                          height: 180,
-                                        )
-                                      : Image.file(
-                                          File(imagePath),
-                                          fit: BoxFit.contain,
-                                          height: 180,
+                                gradient: LinearGradient(
+                                  begin: Alignment(
+                                    -1 + 2 * _gradientController.value,
+                                    -1,
+                                  ),
+                                  end: Alignment(
+                                    1 + 2 * _gradientController.value,
+                                    1,
+                                  ),
+                                  colors: const [
+                                    Color(0xFF6366F1),
+                                    Color(0xFF8B5CF6),
+                                    Color(0xFFEC4899),
+                                    Color(0xFF8B5CF6),
+                                    Color(0xFF6366F1),
+                                  ],
+                                  stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.primary.withOpacity(0.3),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: Container(
+                                margin: const EdgeInsets.all(3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(17),
+                                ),
+                                child: Stack(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(17),
+                                      child: Center(
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(8),
+                                          child: kIsWeb
+                                              ? Image.memory(
+                                                  widget.imageBytes,
+                                                  fit: BoxFit.contain,
+                                                )
+                                              : Image.file(
+                                                  File(widget.imagePath),
+                                                  fit: BoxFit.contain,
+                                                ),
                                         ),
+                                      ),
+                                    ),
+                                    // 확대 아이콘
+                                    Positioned(
+                                      right: 12,
+                                      bottom: 12,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.5),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(
+                                          Icons.zoom_in_rounded,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              // 확대 아이콘
-                              Positioned(
-                                right: 12,
-                                bottom: 12,
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.5),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(
-                                    Icons.zoom_in_rounded,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                            );
+                          },
                         ),
                       ),
 
@@ -831,7 +884,7 @@ class ResultPage extends StatelessWidget {
                                 ),
                               ),
                               Text(
-                                "${detectedItems.length}개 발견",
+                                "${widget.detectedItems.length}개 발견",
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: AppColors.textSecondary,
@@ -845,7 +898,7 @@ class ResultPage extends StatelessWidget {
                       const SizedBox(height: 16),
 
                       // 아이템 리스트
-                      ...detectedItems.asMap().entries.map((entry) {
+                      ...widget.detectedItems.asMap().entries.map((entry) {
                         final index = entry.key;
                         final item = entry.value;
                         return _buildItemCard(item, index);
@@ -1020,11 +1073,11 @@ class ResultPage extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 child: kIsWeb
                     ? Image.memory(
-                        imageBytes,
+                        widget.imageBytes,
                         fit: BoxFit.contain,
                       )
                     : Image.file(
-                        File(imagePath),
+                        File(widget.imagePath),
                         fit: BoxFit.contain,
                       ),
               ),
