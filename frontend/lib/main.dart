@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'dart:ui';
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:http_parser/http_parser.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 
 void main() {
   runApp(const FridgeCoachApp());
@@ -34,6 +37,78 @@ class AppColors {
   );
 }
 
+/* -----------------------------------------------------
+    기록 저장 서비스
+----------------------------------------------------- */
+
+class AnalysisRecord {
+  final String id;
+  final DateTime dateTime;
+  final String imageBase64;
+  final List<Map<String, dynamic>> detectedItems;
+
+  AnalysisRecord({
+    required this.id,
+    required this.dateTime,
+    required this.imageBase64,
+    required this.detectedItems,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'dateTime': dateTime.toIso8601String(),
+    'imageBase64': imageBase64,
+    'detectedItems': detectedItems,
+  };
+
+  factory AnalysisRecord.fromJson(Map<String, dynamic> json) => AnalysisRecord(
+    id: json['id'],
+    dateTime: DateTime.parse(json['dateTime']),
+    imageBase64: json['imageBase64'],
+    detectedItems: List<Map<String, dynamic>>.from(json['detectedItems']),
+  );
+}
+
+class HistoryService {
+  static const String _key = 'analysis_history';
+
+  static Future<List<AnalysisRecord>> getHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_key);
+    if (jsonString == null) return [];
+
+    final List<dynamic> jsonList = jsonDecode(jsonString);
+    return jsonList.map((e) => AnalysisRecord.fromJson(e)).toList();
+  }
+
+  static Future<void> saveRecord(AnalysisRecord record) async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = await getHistory();
+    history.insert(0, record);
+
+    // 최대 20개까지만 저장
+    if (history.length > 20) {
+      history.removeRange(20, history.length);
+    }
+
+    final jsonString = jsonEncode(history.map((e) => e.toJson()).toList());
+    await prefs.setString(_key, jsonString);
+  }
+
+  static Future<void> deleteRecord(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = await getHistory();
+    history.removeWhere((e) => e.id == id);
+
+    final jsonString = jsonEncode(history.map((e) => e.toJson()).toList());
+    await prefs.setString(_key, jsonString);
+  }
+}
+
+/* -----------------------------------------------------
+    메인 앱
+----------------------------------------------------- */
+
 class FridgeCoachApp extends StatelessWidget {
   const FridgeCoachApp({super.key});
 
@@ -61,7 +136,105 @@ class FridgeCoachApp extends StatelessWidget {
           iconTheme: IconThemeData(color: AppColors.textPrimary),
         ),
       ),
-      home: const HomePage(),
+      home: const MainScreen(),
+    );
+  }
+}
+
+/* -----------------------------------------------------
+    메인 화면 (하단 탭 네비게이션)
+----------------------------------------------------- */
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int _currentIndex = 0;
+
+  final List<Widget> _pages = [
+    const HomePage(),
+    const HistoryPage(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _pages[_currentIndex],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.1),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildNavItem(
+                  index: 0,
+                  icon: Icons.home_rounded,
+                  label: '홈',
+                ),
+                _buildNavItem(
+                  index: 1,
+                  icon: Icons.history_rounded,
+                  label: '기록',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem({
+    required int index,
+    required IconData icon,
+    required String label,
+  }) {
+    final isSelected = _currentIndex == index;
+    return GestureDetector(
+      onTap: () => setState(() => _currentIndex = index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: isSelected ? AppColors.gradientPrimary : null,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : AppColors.textSecondary,
+              size: 22,
+            ),
+            if (isSelected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -467,6 +640,16 @@ class _LoadingPageState extends State<LoadingPage>
       print("Data: ${response.data}");
 
       final data = response.data;
+      final detectedItems = List<Map<String, dynamic>>.from(data["detected_items"]);
+
+      // 기록 저장
+      final record = AnalysisRecord(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        dateTime: DateTime.now(),
+        imageBase64: base64Encode(widget.imageBytes),
+        detectedItems: detectedItems,
+      );
+      await HistoryService.saveRecord(record);
 
       if (!mounted) return;
 
@@ -476,7 +659,7 @@ class _LoadingPageState extends State<LoadingPage>
           pageBuilder: (_, __, ___) => ResultPage(
             imagePath: widget.imagePath,
             imageBytes: widget.imageBytes,
-            detectedItems: List<Map<String, dynamic>>.from(data["detected_items"]),
+            detectedItems: detectedItems,
           ),
           transitionsBuilder: (_, animation, __, child) {
             return FadeTransition(opacity: animation, child: child);
@@ -1360,6 +1543,271 @@ class SimulationPage extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* -----------------------------------------------------
+    5) 기록 화면
+----------------------------------------------------- */
+
+class HistoryPage extends StatefulWidget {
+  const HistoryPage({super.key});
+
+  @override
+  State<HistoryPage> createState() => _HistoryPageState();
+}
+
+class _HistoryPageState extends State<HistoryPage> {
+  List<AnalysisRecord> _records = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final records = await HistoryService.getHistory();
+    setState(() {
+      _records = records;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _deleteRecord(String id) async {
+    await HistoryService.deleteRecord(id);
+    _loadHistory();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: AppColors.gradientBackground,
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // 헤더
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.gradientPrimary,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.history_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      "분석 기록",
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // 기록 목록
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _records.isEmpty
+                        ? _buildEmptyState()
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            itemCount: _records.length,
+                            itemBuilder: (context, index) {
+                              return _buildRecordCard(_records[index]);
+                            },
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.inbox_rounded,
+              size: 60,
+              color: AppColors.primary.withOpacity(0.5),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            "아직 기록이 없어요",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "냉장고 사진을 분석하면\n여기에 기록이 저장됩니다",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecordCard(AnalysisRecord record) {
+    final dateFormat = DateFormat('yyyy.MM.dd HH:mm');
+    final imageBytes = base64Decode(record.imageBase64);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ResultPage(
+              imagePath: '',
+              imageBytes: imageBytes,
+              detectedItems: record.detectedItems,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.1),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 이미지 썸네일
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: Image.memory(
+                imageBytes,
+                height: 140,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          dateFormat.format(record.dateTime),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "${record.detectedItems.length}개 식재료 인식",
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 삭제 버튼
+                  GestureDetector(
+                    onTap: () => _showDeleteDialog(record.id),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.delete_outline_rounded,
+                        color: Colors.red.shade400,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(String id) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("기록 삭제"),
+        content: const Text("이 기록을 삭제하시겠습니까?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              "취소",
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteRecord(id);
+            },
+            child: Text(
+              "삭제",
+              style: TextStyle(color: Colors.red.shade400),
             ),
           ),
         ],
